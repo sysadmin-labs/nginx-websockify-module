@@ -6,6 +6,37 @@ Newest first.  Dates are release dates.
 
 ### Fixed
 
+- **The handshake is no longer answered before the connection exists.**  The
+  first attempt at this asked the socket harder, which cannot work: measured
+  on FreeBSD 15.1, the RST of a refused connect has not arrived while
+  `reinit_request` runs, so there is nothing to see -- not through
+  `SO_ERROR`, not through kqueue.  The module answered `101`, nginx then
+  failed in `setsockopt(TCP_NODELAY)` and finalised with 500, and the client
+  got nothing at all.
+- What works is to stop pre-empting nginx.  `reinit_request` now only marks
+  `c->read->ready` instead of calling the read event handler itself, so
+  everything happens in nginx's own order: the connect finishes, nginx makes
+  its own `test_connect` -- which does see the failure, on both platforms,
+  and answers **502** -- the request is sent, and only then does nginx call
+  `process_header`, because the read is marked ready.  Something still has
+  to stand in for a read, because the upstream speaks RFB and not HTTP and
+  may never send a byte of its own; this does, without deciding the
+  connect's fate.
+- Dropping the eager call alone is not enough either, and that was measured
+  too: without any stand-in, 12 of 13 handshake tests fail because nothing
+  ever triggers `process_header`.
+- **A handshake this module cannot serve is refused with 400 before any
+  connection is made.**  A missing `Sec-WebSocket-Key`, or a
+  `Sec-WebSocket-Protocol` that asks for neither base64 nor binary, is a
+  property of the request, so it is settled in the content handler.
+  `process_header` used to answer that from after the connection, and once
+  nginx calls that function out of its own `send_request` path the 400 never
+  reached the client -- which is what `t/handshake.t` TEST 3 and TEST 5
+  caught.
+- Verified on both platforms with the same source: FreeBSD 15.1 and Linux,
+  36 tests each, no `alert` in the error log, and on Linux the HTTP/2 and
+  reload gates at exit 0.
+
 - **An unreachable service was answered with a handshake.**
   `ngx_http_websockify_empty_recv` told nginx that a byte had arrived from a
   service it had not reached, so nginx answered `101 Switching Protocols`

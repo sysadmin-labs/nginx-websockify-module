@@ -116,6 +116,7 @@ static ssize_t
 ngx_http_websockify_decode_one_frame(ngx_connection_t *c, u_char *buf,
                                      const size_t size);
 
+static ngx_int_t ngx_http_websockify_check_handshake(ngx_http_request_t *r);
 static ngx_int_t ngx_http_websockify_test_connect(ngx_connection_t *c);
 static ssize_t ngx_http_websockify_empty_recv(ngx_connection_t *c, u_char *buf,
         size_t size);
@@ -797,6 +798,10 @@ ngx_http_websockify_handler(ngx_http_request_t *r)
         return NGX_HTTP_BAD_REQUEST;
     }
 
+    if (ngx_http_websockify_check_handshake(r) != NGX_OK) {
+        return NGX_HTTP_BAD_REQUEST;
+    }
+
     wlcf = ngx_http_get_module_loc_conf(r, ngx_http_websockify_module);
     ctx = ngx_http_get_module_ctx(r, ngx_http_websockify_module);
 
@@ -917,6 +922,70 @@ ngx_http_websockify_create_request(ngx_http_request_t *r)
 
     return NGX_OK;
 }
+
+/*
+ * Whether this request is a websocket handshake this module can serve: a
+ * Sec-WebSocket-Key, and a Sec-WebSocket-Protocol asking for base64 or
+ * binary.  Both are properties of the request, so they are settled here and
+ * not after a connection to the upstream has been made -- process_header
+ * used to answer 400 from there, and once nginx calls that function out of
+ * its own send_request path the answer never reached the client.
+ */
+
+static ngx_int_t
+ngx_http_websockify_check_handshake(ngx_http_request_t *r)
+{
+    ngx_uint_t        i;
+    ngx_flag_t        have_key = 0;
+    ngx_flag_t        protocol_ok = 0;
+    ngx_table_elt_t  *h;
+    ngx_list_part_t  *part;
+
+    part = &r->headers_in.headers.part;
+    h = part->elts;
+
+    for (i = 0; /* void */; i++) {
+
+        if (i >= part->nelts) {
+            if (part->next == NULL) {
+                break;
+            }
+
+            part = part->next;
+            h = part->elts;
+            i = 0;
+        }
+
+        if (ngx_strncasecmp(h[i].key.data, (u_char *) "Sec-WebSocket-Key",
+                            h[i].key.len) == 0)
+        {
+            have_key = 1;
+
+        } else if (ngx_strncasecmp(h[i].key.data,
+                                   (u_char *) "Sec-WebSocket-Protocol",
+                                   h[i].key.len) == 0)
+        {
+            if (ngx_strstrn(h[i].value.data, "base64", 6 - 1)
+                || ngx_strstrn(h[i].value.data, "binary", 6 - 1))
+            {
+                protocol_ok = 1;
+            }
+        }
+    }
+
+    if (have_key && protocol_ok) {
+        return NGX_OK;
+    }
+
+    ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                  "websockify : not a handshake this module can serve, "
+                  "key %s, base64 or binary protocol %s",
+                  have_key ? "present" : "missing",
+                  protocol_ok ? "asked for" : "not asked for");
+
+    return NGX_ERROR;
+}
+
 
 /*
  * The same test nginx makes in ngx_http_upstream_test_connect(), which is
@@ -1066,12 +1135,24 @@ ngx_http_websockify_reinit_request(ngx_http_request_t *r)
     ctx->original_ngx_upstream_recv = u->peer.connection->recv;
     u->peer.connection->recv = ngx_http_websockify_empty_recv;
 
-    u->read_event_handler(r, r->upstream);
+    /*
+     * Do not run the read handler here.  Running it answered the handshake
+     * before the connection was confirmed: measured on FreeBSD 15.1, the
+     * RST of a refused connect has not arrived at this point, so there is
+     * nothing for any test to see -- not through SO_ERROR, not through
+     * kqueue -- and the client was told "101 Switching Protocols" for a
+     * tunnel that was already dead.
+     *
+     * Only marking the read as ready puts it in nginx's own order instead:
+     * nginx finishes the connect, makes its own test_connect -- which by
+     * then does see a failure, and answers 502 -- sends the request, and
+     * then calls process_header itself because c->read->ready is set.  The
+     * upstream speaks RFB rather than HTTP and may never send a byte of its
+     * own, which is why something has to stand in for that read; this does,
+     * without pre-empting the connect.
+     */
 
-    // this happens if some error occurs during read_event_handler
-    if ( u->peer.connection == NULL ) {
-        return NGX_ERROR;
-    }
+    u->peer.connection->read->ready = 1;
 
     return NGX_OK;
 }
