@@ -29,7 +29,10 @@ jobs:
         with:
           release: '14'
           prepare: |
-            pkg install -y git pcre2 p5-Test-Nginx
+            # p5-Scope-OnExit does not exist in the ports tree, which
+            # is why t/transport.t carries its own guard object
+            pkg install -y git pcre2 p5-Test-Nginx \
+                p5-Protocol-WebSocket
           run: |
             . .github/versions.env
             ci/build.sh "$NGINX_VERSION" "$HOME/nginx"

@@ -67,10 +67,14 @@ Newest first.  Dates are release dates.
   and the linters, and a FreeBSD job that runs the suite in a virtual
   machine.
 - The setup action takes a `cpan` input now, because this suite needs
-  `Protocol::WebSocket` and `Scope::OnExit` as well as `Test::Nginx`.  It
-  also installs `liblwp-protocol-https-perl` first: without it cpanm cannot
-  reach cpanmetadb over HTTPS at all and every lookup fails with "Finding
+  `Protocol::WebSocket` as well as `Test::Nginx`.  It also installs
+  `liblwp-protocol-https-perl` first: without it cpanm cannot reach
+  cpanmetadb over HTTPS at all and every lookup fails with "Finding
   <module> on cpanmetadb failed", which is how this was found.
+- `t/transport.t` no longer needs `Scope::OnExit`.  There is no
+  `p5-Scope-OnExit` in the FreeBSD ports tree, so it would have had to come
+  from CPAN inside the FreeBSD job; a seven line guard object whose
+  destructor runs the callback does the same thing and runs everywhere.
 
 ### Removed
 

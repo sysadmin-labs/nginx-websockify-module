@@ -139,7 +139,7 @@ Test Suite
 
 The suite is written against
 [Test::Nginx](https://metacpan.org/pod/Test::Nginx) and needs
-`Protocol::WebSocket` and `Scope::OnExit` as well:
+`Protocol::WebSocket` as well:
 
 ```
 ci/build.sh 1.31.6 /tmp/nginx-test

@@ -1,9 +1,26 @@
 use IO::Socket::INET;
 use IO::Select;
 use Protocol::WebSocket::Client;
+
+# Scope::OnExit is not in the FreeBSD ports tree, and one dependency fewer is
+# worth more than the sugar it provides.  A guard object whose destructor
+# runs the callback does the same thing, when the enclosing sub returns and
+# when it dies.
+{
+    package WebsockifyGuard;
+
+    sub new {
+        my ($class, $cb) = @_;
+        return bless { cb => $cb }, $class;
+    }
+
+    sub DESTROY {
+        my ($self) = @_;
+        $self->{cb}->();
+    }
+}
 use Test::Nginx::Socket;
 #use Test::More;
-use Scope::OnExit;
 
 my $XTcpServerPid;
 
@@ -68,10 +85,7 @@ add_block_preprocessor(sub {
 add_response_body_check(sub {
     my ($block, $body, $req_idx, $repeated_req_idx, $dry_run) = @_;
 
-    # The installed Scope::OnExit exports on_scope_exit without the &
-    # prototype, so a bare block is parsed as a hash reference and the
-    # file no longer compiles.  An explicit sub is unambiguous.
-    on_scope_exit(sub { kill_tcp_server(); });
+    my $guard = WebsockifyGuard->new(\&kill_tcp_server);
 
     return unless defined $block->websockify_url;
 

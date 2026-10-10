@@ -36,7 +36,7 @@ jobs:
 
       - uses: ./.github/actions/setup
         with:
-          cpan: Protocol::WebSocket Scope::OnExit
+          cpan: Protocol::WebSocket
 
       - name: Build nginx with both sanitizers
         run: |

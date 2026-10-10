@@ -27,7 +27,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           packages: valgrind
-          cpan: Protocol::WebSocket Scope::OnExit
+          cpan: Protocol::WebSocket
 
       - name: Build nginx
         run: |

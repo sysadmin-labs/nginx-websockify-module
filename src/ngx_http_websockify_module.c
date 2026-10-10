@@ -946,28 +946,34 @@ ngx_http_websockify_test_connect(ngx_connection_t *c)
             return NGX_ERROR;
         }
 
-    } else
+    }
+
 #endif
-    {
-        err = 0;
-        len = sizeof(int);
 
-        /*
-         * BSDs and Linux return 0 and set a pending error in err,
-         * Solaris returns -1 and sets errno
-         */
+    /*
+     * nginx asks the socket only when kqueue is not in use, because by the
+     * time it makes this test a kevent has already been processed.  Here the
+     * test happens earlier, before the request is sent, and on kqueue
+     * nothing has been reported yet -- pending_eof is still clear and a
+     * refused connection slips through.  That is why the fix worked on Linux
+     * and not on FreeBSD.  So the socket is asked in either case; it costs
+     * one syscall.
+     *
+     * BSDs and Linux return 0 and set a pending error in err, Solaris
+     * returns -1 and sets errno.
+     */
 
-        if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len)
-            == -1)
-        {
-            err = ngx_socket_errno;
-        }
+    err = 0;
+    len = sizeof(int);
 
-        if (err) {
-            c->log->action = "connecting to upstream";
-            (void) ngx_connection_error(c, err, "connect() failed");
-            return NGX_ERROR;
-        }
+    if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len) == -1) {
+        err = ngx_socket_errno;
+    }
+
+    if (err) {
+        c->log->action = "connecting to upstream";
+        (void) ngx_connection_error(c, err, "connect() failed");
+        return NGX_ERROR;
     }
 
     return NGX_OK;
