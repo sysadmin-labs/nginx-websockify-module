@@ -1,0 +1,39 @@
+name: HTTP/2
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Monday morning, so a new nginx release that breaks the module shows
+    # up here and not in somebody's build
+    - cron: '41 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  http2:
+    name: a handshake that arrives over HTTP/2
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # www/nginx ships HTTPV2 as a default option, and HTTP/2 has no Upgrade
+    # mechanism, so a websocket handshake arriving over it has to be refused
+    # rather than attempted.  Attempting it made nginx fail in epoll_ctl and
+    # the client get no answer at all -- upstream issue #24.
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+        with:
+          test-nginx: 'false'
+
+      - name: Build nginx
+        run: |
+          . .github/versions.env
+          ci/build.sh "$NGINX_VERSION" "$HOME/nginx"
+
+      - name: One over HTTP/1.1, one over HTTP/2
+        run: ci/http2.sh "$HOME/nginx/sbin/nginx"
