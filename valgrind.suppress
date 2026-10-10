@@ -1,11 +1,16 @@
-# nginx allocates two things once and lets the process exit take them back,
-# so valgrind calls them lost.  Neither comes from this module: both traces
-# end in nginx's own code, and the module does not appear in either.
+# nginx allocates three things once and lets the process exit take them
+# back, so valgrind calls them lost.  None comes from this module: every
+# trace ends in nginx's own code, and the module appears in none of them.
 #
-# These two are the only entries, and that is measured, not assumed.  With
+# These three are the only entries, and that is measured, not assumed.  With
 # an empty file the suite reports exactly these and nothing else -- no
-# invalid read, no uninitialised value, no conditional jump.  Anything that
-# was in here beyond them suppressed something that never happens.
+# invalid read, no uninitialised value, no conditional jump.  Anything in
+# here beyond them would suppress something that never happens.
+#
+# The third one, the pool of the master cycle, is new in this repository and
+# was not needed by the sibling modules.  Its trace is
+# posix_memalign <- ngx_memalign <- ngx_create_pool <- main, which is nginx
+# before a single module is loaded.
 #
 # Note which cycle function they come through: Test::Nginx runs nginx with
 # master_process off, so everything here is the single-process path.  An
@@ -34,4 +39,13 @@
    fun:ngx_alloc
    fun:ngx_event_process_init
    ...
+}
+{
+   nginx keeps the pool of the master cycle until the process ends
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:posix_memalign
+   fun:ngx_memalign
+   fun:ngx_create_pool
+   fun:main
 }

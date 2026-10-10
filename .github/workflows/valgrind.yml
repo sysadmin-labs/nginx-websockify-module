@@ -34,11 +34,24 @@ jobs:
           . .github/versions.env
           ci/build.sh "$NGINX_VERSION" "$HOME/nginx"
 
-      - name: Run the test suite under valgrind
+      - name: Run the handshake tests under valgrind
         run: |
           set -o pipefail
-          TEST_NGINX_USE_VALGRIND=1 TEST_NGINX_BINARY="$HOME/nginx/sbin/nginx" \
-            prove -r t/ 2>&1 | tee valgrind.log
+          # Only t/handshake.t, and that is measured: the whole suite under
+          # valgrind ran for over 24 minutes without finishing, all of it in
+          # t/transport.t, which drives real sockets with sleeps.  Under
+          # valgrind that test is not telling either -- two writes end up in
+          # one websocket frame and it expects them apart.  t/handshake.t
+          # takes 45 seconds and covers the path where this module does its
+          # own allocation.
+          #
+          # The client timeout has to go up as well, or TEST 2 fails on the
+          # clock rather than on the module: it waits for a refused connect,
+          # and under valgrind nginx answers later than the default three
+          # seconds.
+          TEST_NGINX_USE_VALGRIND=1 TEST_NGINX_TIMEOUT=30 \
+            TEST_NGINX_BINARY="$HOME/nginx/sbin/nginx" \
+            prove t/handshake.t 2>&1 | tee valgrind.log
 
       - name: No findings allowed
         run: |

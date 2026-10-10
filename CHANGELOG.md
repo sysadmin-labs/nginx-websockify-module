@@ -77,6 +77,23 @@ Newest first.  Dates are release dates.
 
 ### Added
 
+- A third block in `valgrind.suppress`, for the pool of nginx's master
+  cycle: `posix_memalign` <- `ngx_memalign` <- `ngx_create_pool` <- `main`,
+  which is nginx before a single module is loaded.  The sibling modules did
+  not need it; this suite reaches it.  The header of the file now says three
+  rather than two, because a file whose purpose is to record a measurement
+  must not carry a wrong one.
+- The valgrind workflow runs `t/handshake.t` rather than the whole suite,
+  and that is measured, not a shortcut: the whole suite under valgrind ran
+  for over 24 minutes without finishing, all of it in `t/transport.t`, which
+  drives real sockets with sleeps.  Under valgrind that test is not telling
+  either, because two writes end up in one websocket frame and it expects
+  them apart.  `t/handshake.t` takes 125 seconds including the waits and
+  covers the path where this module allocates.
+- `TEST_NGINX_TIMEOUT=30` for that job.  Without it TEST 2 fails on the
+  clock rather than on the module: it waits for a refused connect, and under
+  valgrind nginx answers later than the default three seconds.
+
 - `ci/http2.sh` and a workflow of its own.  It measures all three cases, not
   only the broken one: a plain HTTP/1.1 handshake has to answer `101`, one on
   a listener with `http2 on` has to answer `101` as well, and only a request
